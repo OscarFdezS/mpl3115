@@ -88,3 +88,7 @@ pub const PDR: u8 = 0b0000_0100;
 //PT_DATA_CFG
 //Event Flags Enable
 pub const EVENT_FLAGS: u8 = 0x07;
+
+//INT_SOURCE
+//System interrupt status register
+pub const SRC_DRDY: u8 = 0b1000_0000;

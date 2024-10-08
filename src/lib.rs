@@ -99,6 +99,55 @@ where
         Ok(dev)
     }
 
+    /* Approach for getting the INT mode working */
+
+    pub fn enable_interrupt(&mut self) -> Result<(), Error<E>> {
+        // Set the INT_CFG register to enable the Data Ready interrupt
+        // Configure the Interrupt Pin Behavior
+        self.write_reg(Register::CTRL_REG3, 0x11)
+            .map_err(Error::I2c)?;
+
+        /*
+        //Set the INT_SOURCE register to clear the interrupt
+        self.write_reg(Register::INT_SOURCE, 0b0000_0001)
+            .map_err(Error::I2c)?;
+        */
+
+        //Set the CTRL_REG4 register to enable the DRDY interrupt
+        self.write_reg(Register::CTRL_REG4, 0b1000_0000)
+            .map_err(Error::I2c)?;
+
+        //Set the CTRL_REG5 register to enable the Data Ready interrupt. DRDY in INT1
+        self.write_reg(Register::CTRL_REG5, 0b1000_0000)
+            .map_err(Error::I2c)?;
+
+        Ok(())
+    }
+
+    pub fn take_one_temp_read_by_interrupt(&mut self) -> Result<f32, Error<E>> {
+        //Enable the interrupt
+        // self.enable_interrupt()?;
+
+        //Trigger a one shot reading
+        self.start_reading()?; //This will trigger the interrupt
+
+        //Wait for TDR bit, indicates we have new temperature data
+        while !self.check_temp_reading()? {}
+
+        //Wait for SRC_DRDY bit, indicates we have new data
+        while !self.check_interrupt()? {}
+
+        //Get the data
+        self.get_temp_reading()
+    }
+
+    pub fn check_interrupt(&mut self) -> Result<bool, Error<E>> {
+        let status_reg = self.read_reg(Register::INT_SOURCE).map_err(Error::I2c)?;
+
+        // Only checks for DRDY interrupt.
+        Ok(status_reg & SRC_DRDY != 0)
+    }
+
     /// Destroy driver instance, return `I2C` bus instance
     pub fn destroy(self) -> I2C {
         self.i2c
