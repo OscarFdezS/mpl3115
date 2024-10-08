@@ -7,6 +7,9 @@
 //! See the examples folder for a blocking implementation.
 //!
 //! The pressure mode is likely wildly inaccurate and needs to be tested against a known good pressure sensor.
+//!
+//! A datasheet of MPL3115A2 can be found [here](https://www.nxp.com/docs/en/data-sheet/MPL3115A2.pdf)
+//!
 
 #![no_std]
 
@@ -27,6 +30,8 @@ pub enum Error<E> {
     InvalidData,
     /// Chip ID doesn't match expected value
     UnsupportedChip,
+    /// Interrupt not selected
+    InterruptNotSelected,
 }
 
 /// Device Mode
@@ -48,6 +53,21 @@ pub enum PressureAlt {
     Altitude,
 }
 
+/// MPL3115A2 int checker
+///
+/// This is a helper struct to check the interrupt status
+pub enum MPL3115A2Int {
+    IntDrdy(bool),
+}
+
+impl MPL3115A2Int {
+    pub fn is_int_drdy(&self) -> bool {
+        match self {
+            MPL3115A2Int::IntDrdy(b) => *b,
+        }
+    }
+}
+
 /// `MPL3115A2` driver
 ///
 /// Will start off deactivated and in the PressureAlt mode set
@@ -60,6 +80,9 @@ pub struct MPL3115A2<T> {
 
     /// Pressure or Altitude Mode
     pa: PressureAlt,
+
+    /// Interrupt status
+    ints: MPL3115A2Int,
 }
 
 /// Interrupt setting and status
@@ -80,6 +103,7 @@ where
             i2c,
             mode: Mode::Inactive,
             pa,
+            ints: MPL3115A2Int::IntDrdy(false),
         };
 
         // Ensure we have the correct device ID
@@ -97,55 +121,6 @@ where
         dev.change_reading_type(pa)?;
 
         Ok(dev)
-    }
-
-    /* Approach for getting the INT mode working */
-
-    pub fn enable_interrupt(&mut self) -> Result<(), Error<E>> {
-        // Set the INT_CFG register to enable the Data Ready interrupt
-        // Configure the Interrupt Pin Behavior
-        self.write_reg(Register::CTRL_REG3, 0x11)
-            .map_err(Error::I2c)?;
-
-        /*
-        //Set the INT_SOURCE register to clear the interrupt
-        self.write_reg(Register::INT_SOURCE, 0b0000_0001)
-            .map_err(Error::I2c)?;
-        */
-
-        //Set the CTRL_REG4 register to enable the DRDY interrupt
-        self.write_reg(Register::CTRL_REG4, 0b1000_0000)
-            .map_err(Error::I2c)?;
-
-        //Set the CTRL_REG5 register to enable the Data Ready interrupt. DRDY in INT1
-        self.write_reg(Register::CTRL_REG5, 0b1000_0000)
-            .map_err(Error::I2c)?;
-
-        Ok(())
-    }
-
-    pub fn take_one_temp_read_by_interrupt(&mut self) -> Result<f32, Error<E>> {
-        //Enable the interrupt
-        // self.enable_interrupt()?;
-
-        //Trigger a one shot reading
-        self.start_reading()?; //This will trigger the interrupt
-
-        //Wait for TDR bit, indicates we have new temperature data
-        while !self.check_temp_reading()? {}
-
-        //Wait for SRC_DRDY bit, indicates we have new data
-        while !self.check_interrupt()? {}
-
-        //Get the data
-        self.get_temp_reading()
-    }
-
-    pub fn check_interrupt(&mut self) -> Result<bool, Error<E>> {
-        let status_reg = self.read_reg(Register::INT_SOURCE).map_err(Error::I2c)?;
-
-        // Only checks for DRDY interrupt.
-        Ok(status_reg & SRC_DRDY != 0)
     }
 
     /// Destroy driver instance, return `I2C` bus instance
@@ -191,6 +166,28 @@ where
         Ok(())
     }
 
+    /// This function enables the Interrupt - no FIFO for the MPL3115A2 sensor.
+    /// This is a only configuration function.
+    pub fn enable_int_drdy(&mut self) -> Result<(), Error<E>> {
+        // Set the CTRL_REG3 register to enable the DRDY interrupt
+        // Set INT to Active Low Open Drain
+        self.write_reg(Register::CTRL_REG3, 0x11)
+            .map_err(Error::I2c)?;
+
+        // Set the CTRL_REG4 register to enable the DRDY interrupt
+        // Enable DRDY Interrupt
+        self.write_reg(Register::CTRL_REG4, 0b1000_0000)
+            .map_err(Error::I2c)?;
+
+        // Set the CTRL_REG5 register to enable the Data Ready interrupt. DRDY in INT1
+        // Set Active
+        self.write_reg(Register::CTRL_REG5, 0b1000_0000)
+            .map_err(Error::I2c)?;
+
+        self.ints = MPL3115A2Int::IntDrdy(true);
+        Ok(())
+    }
+
     /// Get one (blocking) Pressure or Altitude value
     pub fn take_one_pa_reading(&mut self) -> Result<f32, Error<E>> {
         //Trigger a one shot reading
@@ -210,6 +207,25 @@ where
 
         //Wait for TDR bit, indicates we have new temperature data
         while !self.check_temp_reading()? {}
+
+        //Get the data
+        self.get_temp_reading()
+    }
+
+    /// Get one (blocking) Temperature value when the DRDY interrupt is enabled.
+    pub fn take_one_temp_read_by_int_drdy(&mut self) -> Result<f32, Error<E>> {
+        if !self.ints.is_int_drdy() {
+            return Result::Err(Error::InterruptNotSelected);
+        }
+
+        //Trigger a one shot reading
+        self.start_reading()?; //This will trigger the interrupt
+
+        //Wait for TDR bit, indicates we have new temperature data
+        while !self.check_temp_reading()? {}
+
+        //Wait for SRC_DRDY bit, indicates we have new data
+        while !self.check_int_drdy()? {}
 
         //Get the data
         self.get_temp_reading()
@@ -239,6 +255,13 @@ where
         let status_reg = self.read_reg(Register::Status).map_err(Error::I2c)?;
 
         Ok(status_reg & TDR != 0)
+    }
+
+    /// Check for the SRC_DRDY bit in the INT_SOURCE register
+    pub fn check_int_drdy(&mut self) -> Result<bool, Error<E>> {
+        let status_reg = self.read_reg(Register::INT_SOURCE).map_err(Error::I2c)?;
+
+        Ok(status_reg & SRC_DRDY != 0)
     }
 
     /// Get and process the pressure or altitude data

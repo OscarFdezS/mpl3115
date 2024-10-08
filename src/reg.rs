@@ -92,3 +92,7 @@ pub const EVENT_FLAGS: u8 = 0x07;
 //INT_SOURCE
 //System interrupt status register
 pub const SRC_DRDY: u8 = 0b1000_0000;
+
+//CTRL_REG4
+//Interrupt enable register
+pub const INT_EN_DRDY: u8 = 0b1000_0000;
