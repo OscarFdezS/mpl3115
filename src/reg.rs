@@ -96,3 +96,5 @@ pub const SRC_DRDY: u8 = 0b1000_0000;
 //CTRL_REG4
 //Interrupt enable register
 pub const INT_EN_DRDY: u8 = 0b1000_0000;
+pub const INT_EN_DRDY_INT1: u8 = 0b1000_0000;
+pub const INT_EN_DRDY_INT2: u8 = 0b0000_0000;

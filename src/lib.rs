@@ -56,16 +56,22 @@ pub enum PressureAlt {
 /// MPL3115A2 int checker
 ///
 /// This is a helper struct to check the interrupt status
-pub enum MPL3115A2Int {
+pub enum MPL3115A2IntTypes {
     IntDrdy(bool),
+    // Other types can be added here
 }
 
-impl MPL3115A2Int {
+impl MPL3115A2IntTypes {
     pub fn is_int_drdy(&self) -> bool {
         match self {
-            MPL3115A2Int::IntDrdy(b) => *b,
+            MPL3115A2IntTypes::IntDrdy(b) => *b,
         }
     }
+}
+
+pub enum MPL3115A2Ints {
+    INT1,
+    INT2,
 }
 
 /// `MPL3115A2` driver
@@ -81,8 +87,8 @@ pub struct MPL3115A2<T> {
     /// Pressure or Altitude Mode
     pa: PressureAlt,
 
-    /// Interrupt status
-    ints: MPL3115A2Int,
+    /// Interrupt type
+    int_type: MPL3115A2IntTypes,
 }
 
 /// Interrupt setting and status
@@ -103,7 +109,7 @@ where
             i2c,
             mode: Mode::Inactive,
             pa,
-            ints: MPL3115A2Int::IntDrdy(false),
+            int_type: MPL3115A2IntTypes::IntDrdy(false),
         };
 
         // Ensure we have the correct device ID
@@ -168,7 +174,7 @@ where
 
     /// This function enables the Interrupt - no FIFO for the MPL3115A2 sensor.
     /// This is a only configuration function.
-    pub fn enable_int_drdy(&mut self) -> Result<(), Error<E>> {
+    pub fn enable_int_drdy(&mut self, ints: MPL3115A2Ints) -> Result<(), Error<E>> {
         // Set the CTRL_REG3 register to enable the DRDY interrupt
         // Set INT to Active Low Open Drain
         self.write_reg(Register::CTRL_REG3, 0x11)
@@ -176,15 +182,22 @@ where
 
         // Set the CTRL_REG4 register to enable the DRDY interrupt
         // Enable DRDY Interrupt
-        self.write_reg(Register::CTRL_REG4, 0b1000_0000)
+        self.write_reg(Register::CTRL_REG4, INT_EN_DRDY)
             .map_err(Error::I2c)?;
 
-        // Set the CTRL_REG5 register to enable the Data Ready interrupt. DRDY in INT1
-        // Set Active
-        self.write_reg(Register::CTRL_REG5, 0b1000_0000)
-            .map_err(Error::I2c)?;
+        // Set the CTRL_REG5 register to enable the Data Ready interrupt
+        match ints {
+            MPL3115A2Ints::INT1 => {
+                self.write_reg(Register::CTRL_REG5, INT_EN_DRDY_INT1)
+                    .map_err(Error::I2c)?;
+            }
+            MPL3115A2Ints::INT2 => {
+                self.write_reg(Register::CTRL_REG5, INT_EN_DRDY_INT2)
+                    .map_err(Error::I2c)?;
+            }
+        }
 
-        self.ints = MPL3115A2Int::IntDrdy(true);
+        self.int_type = MPL3115A2IntTypes::IntDrdy(true);
         Ok(())
     }
 
@@ -214,7 +227,7 @@ where
 
     /// Get one (blocking) Temperature value when the DRDY interrupt is enabled.
     pub fn take_one_temp_read_by_int_drdy(&mut self) -> Result<f32, Error<E>> {
-        if !self.ints.is_int_drdy() {
+        if !self.int_type.is_int_drdy() {
             return Result::Err(Error::InterruptNotSelected);
         }
 
@@ -233,7 +246,7 @@ where
 
     /// Get one (blocking) Pressure or Altitude value when the DRDY interrupt is enabled.
     pub fn take_one_pa_read_by_int_drdy(&mut self) -> Result<f32, Error<E>> {
-        if !self.ints.is_int_drdy() {
+        if !self.int_type.is_int_drdy() {
             return Result::Err(Error::InterruptNotSelected);
         }
 
