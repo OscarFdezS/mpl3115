@@ -231,6 +231,25 @@ where
         self.get_temp_reading()
     }
 
+    /// Get one (blocking) Pressure or Altitude value when the DRDY interrupt is enabled.
+    pub fn take_one_pa_read_by_int_drdy(&mut self) -> Result<f32, Error<E>> {
+        if !self.ints.is_int_drdy() {
+            return Result::Err(Error::InterruptNotSelected);
+        }
+
+        //Trigger a one shot reading
+        self.start_reading()?; //This will trigger the interrupt
+
+        //Wait for PDR bit, indicates we have new pressure data
+        while !self.check_pa_reading()? {}
+
+        //Wait for SRC_DRDY bit, indicates we have new data
+        while !self.check_int_drdy()? {}
+
+        //Get the data
+        self.get_pa_reading()
+    }
+
     /// Clear then set the OST bit which causes the sensor to immediately take another reading
     /// Needed to sample faster than 1Hz
     pub fn start_reading(&mut self) -> Result<(), Error<E>> {
