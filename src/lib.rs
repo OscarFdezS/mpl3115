@@ -384,6 +384,26 @@ where
             .map_err(Error::I2c)
     }
 
+    /// Configure the Auto Acquisition Time Step.
+    /// Call with a range from 0 to 2^4 -1.
+    ///
+    /// Example Times:
+    /// * 0 = 1s
+    /// * 1 = 2s
+    /// * 2 = 4s
+    /// * 6 = 64s
+    pub fn set_time_step(&mut self, time_step: u8) -> Result<(), Error<E>> {
+        // Get context of the CTRL_REG2 register
+        let mut ts = self.read_reg(Register::CTRL_REG2).map_err(Error::I2c)?;
+        // Write only the 4 bits of the time step.
+        ts &= 0b1111_0000;
+        // Truncate the time step value
+        let time_step_temp = time_step & 0b0000_1111;
+        // Set the time into the register
+        ts |= time_step_temp;
+        self.write_reg(Register::CTRL_REG2, ts).map_err(Error::I2c)
+    }
+
     #[inline]
     fn read_reg(&mut self, reg: Register) -> Result<u8, E> {
         let mut buf = [0u8];
